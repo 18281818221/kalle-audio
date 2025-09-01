@@ -16,13 +16,14 @@ import torch.distributions as D
 from accelerate import Accelerator
 from transformers import AutoModelForCausalLM, get_scheduler, AutoTokenizer
 from torch.optim import AdamW
-from model import Llasa
+from model_sigmaVAE import Llasa
 from torch.utils.data import DataLoader, DistributedSampler
 from tqdm.auto import tqdm
 from twj_dataset_offline import TTSDataset_online_parquet, dict_to_device
 import os
-
+import sys
 print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] import end train.py')
+yaml_path = sys.argv[1]
 
 def write_log_to_file(log_content, log_path):
     """将日志内容追加写入文本文件"""
@@ -30,8 +31,7 @@ def write_log_to_file(log_content, log_path):
         f.write(log_content + "\n")  # 每行日志后加换行符，保证格式清晰
 def main():
     print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] start func main')
-    config_file = "/mnt/bn/twj-data-multimodal2/workspace/kalle/configs/twj.yaml"
-    config_file = '/mnt/bn/twj-data-multimodal2/workspace/kalle/configs/twj_0828.yaml'
+    config_file = yaml_path
     config = yaml.safe_load(open(config_file))
     config['exp_dir'] = os.path.join(config['exp_dir'],config['project_name'])
     config['log_dir'] = os.path.join(config['exp_dir'],'logs')
@@ -188,16 +188,6 @@ def main():
             # move to device
             batch_size_actual = batch.get("input_ids").shape[0] if batch.get("input_ids") is not None else static_batch_size
             batch_record_lst.append(batch_size_actual)
-            # batch = dict_to_device(batch, accelerator.device)
-            # import pdb;pdb.set_trace()
-            # for key, val in batch.items():
-            #     if isinstance(val, torch.Tensor) and (torch.isnan(val).any() or torch.isinf(val).any()):
-            #         print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] 输入 {key} 包含无效值"')
-            #         print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] 输入 {key} 包含无效值"')
-            #         print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] 输入 {key} 包含无效值"')
-            #         print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] 输入 {key} 包含无效值"')
-            #         batch, _ = filter_anomalous_samples(batch)
-            #         break
 
             with accelerator.accumulate(model):
 

@@ -259,10 +259,8 @@ class TTSDataset_online_parquet(Dataset):
                 # speech_path = item['speech']
                 # video_path = item['video']
                 text = item['caption']
-                text = item['AudioSetCaps']
                 data_id = item['id']
-                # vae_latent_path = item['vae_latent_path']
-                vae_latent_path = item['vae'] # 'shape': (1, 76, 64),
+                vae_latent_path = item['vae_latent_path']
 
         # # Audio stream: extract VAE latent
         #         audio_io = io.BytesIO(audio_bytes)
@@ -278,9 +276,28 @@ class TTSDataset_online_parquet(Dataset):
         #         mean_scale_latent = mean_scale_latent.detach()
 
         # VAE latent
+                mean_scale_latent = np.load(vae_latent_path) # 128, t
+
+                if len(mean_scale_latent.shape)==2:
+                    mean_scale_latent = mean_scale_latent.unsqueeze(0)
+
+                # mean_scale_latent = torch.randn(1, 512, 200)
+                mean_scale_latent = torch.from_numpy(mean_scale_latent) # 1, 128, T
+                mean, scale = mean_scale_latent.chunk(2, dim=1)
+                latents, kl = vae_sample(mean, scale) 
+                if len(latents.shape)==3:
+                    latents = latents.squeeze(0)      # 1, dim, T -> # dim, T 
+                latents = latents.transpose(0,1)    # dim, T -> T, dim
+
+                # mean, logs_scale = mean_scale_latent.chunk(2, dim=1)
+                # stdev = torch.exp(logs_scale)
+                # latents = torch.randn_like(mean) * stdev + mean
+                # latents = latents.squeeze(0).transpose(0,1)
+                # audio_T = latents.size(0)
+
                 
-                # mean_scale_latent, latents = self.get_stableaudio_latent(vae_latent_path)
-                mean_scale_latent, latents = self.get_sigmaVAE_latent(vae_latent_path) # (1, 76, 64), (1, 76, 64),
+                # print('latents', latents.shape) # T, dim
+
 
         # text handing:
 
@@ -300,8 +317,8 @@ class TTSDataset_online_parquet(Dataset):
                     "input_ids": text_ids,
                     "ids_len": text_ids.shape[0],
                     "audio_latents": latents,
-                    "audio_len": latents.shape[1],
-                    "audio_distribution": mean_scale_latent,
+                    "audio_len": latents.shape[0],
+                    "audio_distribution": mean_scale_latent.squeeze(0).transpose(0,1),
                     "mel": None,
                 }
                 for key, val in return_dict.items():
@@ -323,11 +340,11 @@ class TTSDataset_online_parquet(Dataset):
     
     def collate(self, batch):
         b = len(batch)
-        distribute_dim = batch[0]['audio_distribution'].shape[2]
-        audio_dim = batch[0]['audio_latents'].shape[2]
+        distribute_dim = batch[0]['audio_distribution'].shape[1]
+        audio_dim = batch[0]['audio_latents'].shape[1]
 
         latent_dtype = batch[0]['audio_latents'].dtype
-        max_length = max([i['input_ids'].shape[0]+i['audio_latents'].shape[1] for i in batch])
+        max_length = max([i['input_ids'].shape[0]+i['audio_latents'].shape[0] for i in batch])
 
         input_text_ids = torch.full((b,max_length), self.pad_token_id, dtype=torch.long)
         input_audio_latents = torch.zeros(b,max_length,audio_dim,dtype=latent_dtype)
@@ -360,6 +377,28 @@ class TTSDataset_online_parquet(Dataset):
             enddist_mask[i,e-1:e] = True
 
 
+        #     check_vale = input_audio_latents[i]
+
+        #     if (torch.isnan(check_vale).any() or torch.isinf(check_vale).any()):
+        #         # 把第i个从最终batch中移除
+        #         print (f"输入 {i} 包含无效值")
+        #         print (f"输入 {i} 包含无效值")
+        #         print (f"输入 {i} 包含无效值")
+        #         print (f"输入 {i} 包含无效值")
+        #         print (f"输入 {i} 包含无效值")
+        #         remove_list.append(i)
+        # input_text_ids = remove_batch_indices(input_text_ids, remove_list)
+        # input_audio_latents = remove_batch_indices(input_audio_latents, remove_list)
+        # distribute_lables = remove_batch_indices(distribute_lables, remove_list)
+        # text_ids_mask = remove_batch_indices(text_ids_mask, remove_list)
+        # audio_latents_mask = remove_batch_indices(audio_latents_mask, remove_list)
+        # distribute_lables_mask = remove_batch_indices(distribute_lables_mask, remove_list)
+        # enddist_mask = remove_batch_indices(enddist_mask, remove_list)
+        # speaker_cond_keep = remove_batch_indices(speaker_cond_keep, remove_list)
+
+
+
+
         return_dict = {
             "input_ids": input_text_ids,
             "audio_latents": input_audio_latents,
@@ -376,29 +415,6 @@ class TTSDataset_online_parquet(Dataset):
         return return_dict
 
 
-    def get_stableaudio_latent(vae_latent_path):
-        mean_scale_latent = np.load(vae_latent_path) # 128, t
-        if len(mean_scale_latent.shape)==2:
-            mean_scale_latent = mean_scale_latent.unsqueeze(0)
-        # mean_scale_latent = torch.randn(1, 512, 200)
-        mean_scale_latent = torch.from_numpy(mean_scale_latent) # 1, 128, T
-        mean, scale = mean_scale_latent.chunk(2, dim=1)
-        latents, kl = vae_sample(mean, scale) 
-        if len(latents.shape)==3:
-            latents = latents.squeeze(0)      # 1, dim, T -> # dim, T 
-        latents = latents.transpose(0,1)    # dim, T -> T, dim
-        return mean_scale_latent, latents
-
-
-
-    def get_sigmaVAE_latent(self, vae_latent_path):
-        mean_scale_latent = np.load(vae_latent_path) # 'shape': (1, 76, 64),
-        mean_scale_latent = torch.from_numpy(mean_scale_latent) # (1, 76, 64),
-
-        latents = mean_scale_latent
-
-        return mean_scale_latent, latents
-    
 # if __name__ == "__main__":
 #     import yaml
 #     from transformers import AutoTokenizer

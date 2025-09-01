@@ -28,6 +28,7 @@ fi
 # export NCCL_TIMEOUT=180s  # NCCL 通信超时（默认 30s）
 export TORCH_DISTRIBUTED_DEBUG=DETAIL  # 打印更详细的分布式日志，便于排查
 # /mnt/bn/twj-data-multimodal2/environment/anaconda2/bin/python
+yaml_path=/mnt/bn/twj-data-multimodal2/workspace/kalle/configs/twj_0828.yaml
 accelerate launch --config_file ./default_config.yaml \
                  --main_process_port 12368 \
-                 --num_processes ${GPU_COUNT} train_offline.py
+                 --num_processes ${GPU_COUNT} train_offline.py ${yaml_path}
