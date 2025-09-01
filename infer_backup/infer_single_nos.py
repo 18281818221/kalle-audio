@@ -1,0 +1,271 @@
+
+import os
+import yaml
+import json
+import torch
+import librosa
+import argparse
+import numpy as np
+import torch.distributions as D
+
+from tqdm import tqdm
+# from model import Llasa
+from infer import Llasa
+from flows import BigVGANFlowVAE as Generator
+from transformers import AutoTokenizer,get_scheduler
+from scipy.io.wavfile import write
+
+from dy_dataset import extract_mel_spec
+
+def modify_vector(vector_bdt, size=200):
+    # 560 ~ 6s
+    if vector_bdt.shape[-1] < size:
+        while vector_bdt.shape[-1] < size:
+            vector_bdt = vector_bdt.repeat(1,1,2)
+        vector_bdt = vector_bdt[:,:,:size]
+    elif vector_bdt.shape[-1] > size:
+        start_index = np.random.randint(low=0, high=vector_bdt.shape[-1] - size)
+        vector_bdt = vector_bdt[:,:,start_index:start_index + size]
+    return vector_bdt
+
+
+class AttrDict(dict):
+    def __init__(self, *args, **kwargs):
+        super(AttrDict, self).__init__(*args, **kwargs)
+        self.__dict__ = self
+
+
+class infer_tools:
+    def __init__(self, 
+                 config, 
+                 device, 
+                 check_point_path,
+                 use_sample=False,
+                 opt_before_infer=False,
+                 ):
+        self.init_config(config)
+        
+        self.device = f"cuda:{device}"
+        self.check_point_path = check_point_path
+
+
+        self.use_sample = use_sample
+        self.opt_before_infer = opt_before_infer
+
+        self.check_point_path = check_point_path
+        if self.check_point_path is None:
+            checkpoints = [os.path.join(self.config['output_dir'], d) for d in os.listdir(self.config['output_dir']) if d.startswith("epoch_")]
+            self.check_point_path = max(checkpoints, key=os.path.getmtime)
+
+        self.init_vae_generator()
+        self.init_tokenizer()
+        self.init_model()
+        # self.init_output_info()
+
+
+        
+
+    def init_config(self, config):
+        config = yaml.safe_load(open(config))
+        self.config = config
+        self.config['exp_dir'] = os.path.join(config['exp_dir'],config['project_name'])
+        self.config['output_dir'] = os.path.join(config['exp_dir'],'output')
+
+    def init_vae_generator(self):
+        vae_model_config = self.config['dataset']['vae_config'].get('config_file')
+        with open(vae_model_config) as f:
+            vae_model_config = f.read()
+
+        json_config = json.loads(vae_model_config)
+        self.h = AttrDict(json_config)
+        generator = Generator(self.h)
+
+        file_path = self.config['dataset']['vae_config'].get('cpt_path')
+        state_dict_g = torch.load(file_path, map_location='cpu')
+        generator.load_state_dict(state_dict_g['generator'])
+        generator.eval()
+        generator.remove_weight_norm()
+        generator.to(self.device)
+        torch.backends.cudnn.benchmark = False
+        self.generator = generator
+
+    def init_tokenizer(self):
+        tokenizer = AutoTokenizer.from_pretrained(self.config['tokenizer_path'])
+        self.speech_generation_start_id = tokenizer.convert_tokens_to_ids('<|SPEECH_GENERATION_START|>')    # 128260
+        self.speech_generation_end_id = tokenizer.convert_tokens_to_ids('<|SPEECH_GENERATION_END|>')        # 128261
+        self.text_generation_start_id = tokenizer.convert_tokens_to_ids('<|TEXT_GENERATION_START|>')        # 128256
+        self.text_generation_end_id = tokenizer.convert_tokens_to_ids('<|TEXT_GENERATION_END|>')            # 128257
+        self.text_understanding_start_id = tokenizer.convert_tokens_to_ids('<|TEXT_UNDERSTANDING_START|>')  # 128258
+        self.text_understanding_end_id = tokenizer.convert_tokens_to_ids('<|TEXT_UNDERSTANDING_END|>')      # 128259
+        self.speech_understanding_start_id = tokenizer.convert_tokens_to_ids('<|SPEECH_UNDERSTANDING_START|>')  # 128262
+        self.speech_understanding_end_id = tokenizer.convert_tokens_to_ids('<|SPEECH_UNDERSTANDING_END|>')      # 128263
+        self.tokenizer = tokenizer
+
+    def init_model(self):
+        model = Llasa(self.config['model'],self.tokenizer)
+        self.latent_dim = self.config['model']['latent_dim']
+        self.ckpt = torch.load(self.check_point_path,map_location='cpu')
+        model.load_state_dict(self.ckpt)
+        for name, param in model.named_parameters():
+            assert param.dtype == torch.float32
+        self.model = model.to(self.device)
+
+    def reinit_model(self):
+        self.model.load_state_dict(self.ckpt)
+        self.model = self.model.to(self.device)
+
+
+    # def init_output_info(self):
+    #     version = os.path.basename(os.path.dirname(os.path.dirname(self.check_point_path)))
+    #     ckpt_name = os.path.basename(self.check_point_path)
+    #     self.target_name = f"test-{version}-{ckpt_name}-{self.test_mod}"
+    #     # if self.use_prompt:
+    #     #     self.target_name += '-prompt'
+    #     if self.use_sample:
+    #         self.target_name += '-sample'
+    #     if self.opt_before_infer:
+    #         self.target_name += '-opt_before_infer'
+    #     os.makedirs(self.target_name, exist_ok=True)
+
+
+
+    def infer(self, reference_audio, reference_text, refined_text, enable_reference_audio):
+        
+        # if os.path.exists(os.path.join(self.target_name, f"{utt}.wav")):
+        #     continue
+        target_text = refined_text
+        if enable_reference_audio:
+            # prompt text
+            prompt_text = reference_text
+            prompt_text_tokenized = self.tokenizer.encode(prompt_text)
+            
+            # prompt wav
+            prompt_wav = reference_audio
+            prompt_wav,_ = librosa.load(prompt_wav, sr=self.h.sampling_rate, mono=True)
+            prompt_wav_tensor = torch.FloatTensor(prompt_wav.reshape(1, -1)).to(self.device)
+
+            norm_wav = librosa.util.normalize(prompt_wav) * 0.95
+            norm_wav = torch.from_numpy(norm_wav)
+            mel = extract_mel_spec(norm_wav).unsqueeze(0)
+            mel = modify_vector(mel).to(self.device)
+
+
+            with torch.no_grad():
+                prompt_mean_scale_latent = self.generator.extract_latents(prompt_wav_tensor.unsqueeze(0))
+            mean, logs_scale = prompt_mean_scale_latent[:,:,:-1].transpose(1,2).chunk(2, dim=2)
+            audio_latents = torch.randn_like(mean) * torch.exp(logs_scale) + mean
+
+            target_text_tokenized = self.tokenizer.encode(refined_text)[1:]
+        else:
+            prompt_text_tokenized = []
+            target_text_tokenized = self.tokenizer.encode(refined_text)
+            audio_latents = None
+
+
+        text_ids = torch.from_numpy(np.asarray( prompt_text_tokenized + target_text_tokenized + [self.speech_understanding_end_id, self.speech_generation_start_id ] )).long()
+        input_ids = text_ids.to(self.device)
+
+        if self.opt_before_infer:
+            self.reinit_model()
+            assert enable_reference_audio
+            self.optim(mel,input_ids, prompt_mean_scale_latent)
+            print("训练结束。")
+
+            # target_text_tokenized = self.tokenizer.encode(refined_text)
+            # text_ids = torch.from_numpy(np.asarray(target_text_tokenized + [self.speech_understanding_end_id, self.speech_generation_start_id ] )).long()
+            # input_ids = text_ids.to(self.device)
+            # audio_latents = None
+
+            # with torch.no_grad():
+            #     with torch.autocast(device_type="cuda"):
+            #         generate_audio_latents = self.model.infer(input_ids,audio_latents)
+            #         audio = self.generator.inference_from_latents(generate_audio_latents, do_sample=True) * 32767.0
+
+            # audio = audio.detach().cpu().numpy().astype('int16')
+
+            # return audio
+
+
+        with torch.no_grad():
+            with torch.autocast(device_type="cuda"):
+                generate_audio_latents = self.model.infer(input_ids,audio_latents)
+                audio = self.generator.inference_from_latents(generate_audio_latents, do_sample=True) * 32767.0
+
+        audio = audio.detach().cpu().numpy().astype('int16')
+
+        # write(os.path.join(self.target_name,f"{utt}.wav"),self.h.sampling_rate,audio)
+        return audio
+
+    def optim(self,
+              mel,
+              input_ids,
+              prompt_mean_scale_latent,
+              loss_threashold=None,#0.8,
+              max_step=50,
+              warmup_step=15,#
+              training_steps=40,#
+              lr=1e-5, # 2e-5 可能还和初始kl有关
+              ):
+        
+        optimizer = torch.optim.Adam(self.model.parameters(), lr=lr,weight_decay=float(self.config["weight_decay"]))
+        scheduler = get_scheduler(
+            self.config["scheduler"],
+            optimizer=optimizer,
+            num_warmup_steps=warmup_step,
+            num_training_steps=training_steps,
+        )
+
+        mean, logs_scale = prompt_mean_scale_latent[:,:,:-1].transpose(1,2).chunk(2, dim=2)
+        for step in range(max_step):
+            audio_latents = torch.randn_like(mean) * torch.exp(logs_scale) + mean
+            with torch.autocast(device_type="cuda"):
+                text_embed = self.model.base_model.model.embed_tokens(input_ids.unsqueeze(0))
+                audio_embed = self.model.audio_linear(audio_latents)
+
+                input_embed = torch.cat((text_embed,audio_embed),dim=1)
+                hidden = self.model.base_model.model(inputs_embeds=input_embed)[0]
+                distribution_p = self.model.distribution_linear(hidden[:,1:,:]) 
+                audio_len = audio_embed.shape[1]
+                dis_p = distribution_p[:,-1-audio_len:-1,:]
+
+                mean2,logs_scale2 = dis_p.chunk(2,dim=2)
+
+                l_disp = D.Normal(mean,torch.exp(logs_scale)) 
+                p_disp = D.Normal(mean2,torch.exp(logs_scale2))
+                # import pdb;pdb.set_trace()
+
+                kl = D.kl_divergence(p_disp, l_disp)
+                kl = kl.sum(2) / audio_latents.shape[-1]
+                kl = kl.sum() / audio_len
+
+                # print(kl.detach().item())
+                if loss_threashold is not None and kl.detach().item() < loss_threashold:
+                    break
+                # if kl.detach().item() < 1:
+                #     break
+
+                kl.backward()
+                optimizer.step()
+                scheduler.step()
+                optimizer.zero_grad()
+
+
+
+
+if __name__ == "__main__":
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('-c','--config', type=str, default='./configs/vae_llama_online_node61_sft.yaml', help='Config yaml')
+    parser.add_argument('-d','--device', type=str, default='0', help='Device')
+    parser.add_argument('-m','--test_mod', type=str, default='en', help='Test mod')
+    parser.add_argument('-p','--check_point_path', type=str, default=None, help='Check point path')
+
+    # 选择性
+    parser.add_argument('-i',action='store_true', help='Use prompt')
+    parser.add_argument('-s',action='store_true', help='Use sample')
+    parser.add_argument('-o',action='store_true', help='Opt before infer')
+    
+    args = parser.parse_args()
+
+    infer = infer_tools(args.config, args.device, args.test_mod, args.check_point_path, args.i, args.s, args.o)
+    infer.infer()

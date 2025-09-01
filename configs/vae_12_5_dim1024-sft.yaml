@@ -1,0 +1,52 @@
+project_name: "melvae_1024dim_12_5hz_tts-2000hsft"
+exp_dir: "/mnt/xkx_data1/exp"
+
+# log_dir:    exp_dir + project_name + logs
+# output_dir: exp_dir + project_name + output_dir
+# resume_dir: exp_dir + project_name + resume_dir
+
+use_flash_attation: True
+# resume_latent: True
+
+model:
+  llm_model_name_or_path: "../Llama-3.2-1B-Instruct"
+  latent_dim: 512
+tokenizer_path: "./tokenizer_dir"
+
+audio_loss_weight: 1.0
+end_loss_weight: 1.0
+
+# start_checkpoint: "/home/node58_tmpdata2/kxxia/exp/vae_tts_without_endloss_v3_3_node58/output/epoch_21_step_113882.pt"
+start_checkpoint: "/mnt/xkx_data1/exp/melvae_1024dim_12_5hz_tts/output/epoch_3_step_253127.pt"
+
+lr: 3e-5
+# lr: 1e-4
+weight_decay: 1e-2
+gradient_accumulation_steps: 1
+
+scheduler: "cosine"
+warmup_steps: 1_000
+total_steps: 200_0000
+save_interval: 5000
+
+dataset:
+  # meta_path: "./lirbitts_wav_train.jsonl"
+  # meta_path: "./train_lance.lst"
+  meta_path: "/mnt/xkx_data1/lance_data/hq_170w_Mp3Data"
+  vae_config:
+    config_file: "./configs/melvae/config_dim1024_12_5hz.json"
+    cpt_path: "../g_01400000-1024dim_12_5hz_tts"
+
+datapool:
+  prefetch_size: 2000
+  max_size: 5000
+  num_workers: 32
+
+batch_generator:
+  use_dynamic: true
+  batch_size: 999
+  max_token_length: 24000
+
+
+
+

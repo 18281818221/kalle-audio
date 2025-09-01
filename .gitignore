@@ -1,0 +1,10 @@
+test*
+__pycache__
+*.npy
+*.wav
+output_wavs
+*.jsonl
+*.json
+*.ipynb
+events*
+exp*

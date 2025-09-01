@@ -1,0 +1,55 @@
+project_name: "go_on-go_on-go_on-go_on-go_on-vggsound_audiosetgemini" # speaker cond 换成单帧 ecapatdnn 特征
+exp_dir: "/mnt/bn/twj-data-multimodal2/logdir/kalle"
+
+# log_dir:    exp_dir + project_name + logs
+# output_dir: exp_dir + project_name + output_dir
+# resume_dir: exp_dir + project_name + resume_dir
+
+use_flash_attation: False
+
+model:
+  llm_model_name_or_path: "/mnt/bn/twj-data-multimodal2/Llama-3.2-1B-Instruct"
+  latent_dim: 64
+  audio_proj_dim: 2048
+tokenizer_path: "/mnt/bn/twj-data-multimodal2/workspace/kalle/tokenizer_dir"
+
+audio_loss_weight: 1.0
+end_loss_weight: 1 # 除以500
+kl_loss_weight: 0.0
+
+# start_checkpoint: "/mnt/bn/twj-data-multimodal2/logdir/kalle/only_vggsound_batch8_acc4/output/epoch_13_step_18512.pt"
+# start_checkpoint: "/mnt/bn/twj-data-multimodal2/logdir/kalle/go_on-vggsound_audiosetgemini-batch8_acc4/output/epoch_22_step_41448.pt"
+# start_checkpoint: "/mnt/bn/twj-data-multimodal2/logdir/kalle/go_on-go_on-vggsound_audiosetgemini/output/epoch_20_step_37680.pt"
+# start_checkpoint: "/mnt/bn/twj-data-multimodal2/logdir/kalle/go_on-go_on-go_on-vggsound_audiosetgemini/output/epoch_15_step_1.pt"
+start_checkpoint: "/mnt/bn/twj-data-multimodal2/logdir/kalle/go_on-go_on-go_on-go_on-vggsound_audiosetgemini/output/epoch_9_step_16956.pt"
+lr: 5e-5
+# lr: 1e-4
+weight_decay: 1e-2
+gradient_accumulation_steps: 2
+
+scheduler: "cosine"
+warmup_steps: 1_000
+total_steps: 100_0000
+save_interval: 5000
+
+dataset:
+
+  meta_path: "/mnt/bn/twj-data-multimodal2/merge_0822.jsonl"
+  spk_drop_prob: 0.1
+  vae_config:
+    config_file: "/mnt/bn/twj-data-multimodal2/workspace/stable-audio-tools/stable-audio-open-1.0/model_config.json"
+    cpt_path: "/mnt/bn/twj-data-multimodal2/workspace/stable-audio-tools/stable-audio-open-1.0/model.safetensors"
+
+datapool:
+  prefetch_size: 5000
+  max_size: 5000
+  num_workers: 4
+
+batch_generator:
+  use_dynamic: true
+  max_token_length: 11000
+  batch_size: 16
+
+
+
+

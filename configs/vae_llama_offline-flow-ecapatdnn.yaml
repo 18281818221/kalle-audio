@@ -1,0 +1,51 @@
+project_name: "vae_flow_tts_offline-ecapatdnn_v1" # speaker cond 换成单帧 ecapatdnn 特征
+exp_dir: "/mnt/nfs20/kxxia/data/exp"
+
+# log_dir:    exp_dir + project_name + logs
+# output_dir: exp_dir + project_name + output_dir
+# resume_dir: exp_dir + project_name + resume_dir
+
+use_flash_attation: True
+
+model:
+  llm_model_name_or_path: "../Llama-3.2-1B-Instruct"
+  latent_dim: 256
+tokenizer_path: "./tokenizer_dir"
+
+audio_loss_weight: 1.0
+end_loss_weight: 1.0
+kl_loss_weight: 0.0
+
+start_checkpoint: "/mnt/nfs20/kxxia/data/exp/melvae_512dim_tts_large_v2_bf16/output/epoch_3_step_650155.pt"
+
+lr: 5e-5
+# lr: 1e-4
+weight_decay: 1e-2
+gradient_accumulation_steps: 1
+
+scheduler: "cosine"
+warmup_steps: 1_000
+total_steps: 100_0000
+save_interval: 5000
+
+dataset:
+  # meta_path: "./lirbitts_wav_train.jsonl"
+  # meta_path: "./train_lance.lst"
+  meta_path: "/mnt/nfs20/kxxia/lance_backup/hq_170w_Mp3Data"
+  vae_config:
+    config_file: "./configs/melvae/config_dim512.json"
+    cpt_path: "../g_01000000"
+
+datapool:
+  prefetch_size: 5000
+  max_size: 5000
+  num_workers: 32
+
+batch_generator:
+  use_dynamic: true
+  batch_size: 3999999
+  max_token_length: 11000
+
+
+
+
