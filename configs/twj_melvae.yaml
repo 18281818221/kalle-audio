@@ -1,0 +1,51 @@
+project_name: "0904-audiosetgemini-melVAE" # speaker cond 换成单帧 ecapatdnn 特征
+exp_dir: "/mnt/bn/twj-data-multimodal2/logdir/kalle"
+
+# log_dir:    exp_dir + project_name + logs
+# output_dir: exp_dir + project_name + output_dir
+# resume_dir: exp_dir + project_name + resume_dir
+
+use_flash_attation: False
+
+model:
+  llm_model_name_or_path: "/mnt/bn/twj-data-multimodal2/Llama-3.2-1B-Instruct"
+  latent_dim: 512
+  audio_proj_dim: 2048
+tokenizer_path: "/mnt/bn/twj-data-multimodal2/workspace/kalle/tokenizer_dir"
+
+audio_loss_weight: 1.0
+end_loss_weight: 0.002 # 除以500
+kl_loss_weight: 0.0
+# start_checkpoint: "/mnt/bn/twj-data-multimodal2/logdir/kalle/go_on-go_on-go_on-go_on-vggsound_audiosetgemini/output/epoch_9_step_16956.pt"
+lr: 5e-5
+# lr: 1e-4
+weight_decay: 1e-2
+gradient_accumulation_steps: 8
+
+scheduler: "cosine"
+warmup_steps: 1_000
+total_steps: 100_0000
+save_interval: 5000
+log_interval: 50
+
+dataset:
+
+  meta_path: "/mnt/bn/twj-data-multimodal2/dataset/jsonl/audioset_gemini2flash.valid.valid_audioset.vae.jsonl"
+  spk_drop_prob: 0.1
+  vae_config:
+    config_file: "/mnt/bn/twj-data-multimodal2/workspace/melvae/exp/twj_audioset/config.json"
+    cpt_path: "/mnt/bn/twj-data-multimodal2/workspace/melvae/exp/twj_audioset/g_00050000"
+
+datapool:
+  prefetch_size: 5000
+  max_size: 5000
+  num_workers: 8
+
+batch_generator:
+  use_dynamic: true
+  max_token_length: 11000
+  batch_size: 16
+
+
+
+

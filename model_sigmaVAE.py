@@ -55,7 +55,6 @@ class Llasa(nn.Module):
         input_ids,              # b,t
         audio_latents,          # b,t,d1
         audio_distribution_l,     # b,t,d2
-
         ids_mask,
         audio_mask,
         target_mask,
@@ -89,7 +88,8 @@ class Llasa(nn.Module):
         l_disp = D.Normal(mean1, self.std) # 均值和标准差
         p_disp = D.Normal(mean2, self.std)
 
-        kl = D.kl_divergence(l_disp, p_disp)
+        # kl = D.kl_divergence(l_disp, p_disp)
+        kl = D.kl_divergence(p_disp, l_disp)
 
         kl = kl.sum(2) / audio_latents_dim
         audio_loss = (kl * target_mask).sum() / target_mask.sum()
@@ -99,7 +99,8 @@ class Llasa(nn.Module):
             "audio_loss": audio_loss,
             "end_loss": end_loss,
             "pre_mean": mean2,
-            "pre_log_scale": None
+            "pre_log_scale": self.std,
+            "ground_truth_audio_latents": audio_latents
         }
     
     @torch.no_grad()
@@ -108,7 +109,7 @@ class Llasa(nn.Module):
         input_ids,              # t
         audio_latents,          # 
         end_disp_kl_thres = 0.5,
-        max_length = 1000,
+        max_length = 200,
         sample = False,
         use_cfg = None,
         flow = None
@@ -124,23 +125,24 @@ class Llasa(nn.Module):
             last_hidden = hidden[0][:,-1:,:]
             last_disp = self.distribution_linear(last_hidden)
 
-            mean,logs_scale2 = last_disp.chunk(2,dim=2)
+            mean2 = last_disp
 
             
-            audio_latent = torch.randn_like(mean) * torch.exp(logs_scale2) + mean
+            audio_latent = self.sample(mean2)
 
-            final_audio_latents_lst.append(last_disp)
+            final_audio_latents_lst.append(audio_latent)
 
-            end_disp = D.Normal(torch.ones_like(mean),torch.exp(torch.ones_like(logs_scale2))) # 均值和标准差
-            p_disp = D.Normal(mean,torch.exp(logs_scale2))
-            latent_dim = mean.shape[2] 
+            end_disp = D.Normal(torch.ones_like(mean2).to(mean2.device), \
+                                torch.exp(torch.ones_like(mean2).to(mean2.device))) # 均值和标准差
+            p_disp = D.Normal(mean2.to(mean2.device), self.std.to(mean2.device))
+            latent_dim = mean2.shape[2] 
             kl = D.kl_divergence(p_disp, end_disp).sum(2) / latent_dim
 
             if kl < end_disp_kl_thres and i > 3:
                 break
 
             audio_embed = self.audio_linear(audio_latent)
-            input_embed = torch.cat((input_embed,audio_embed),dim=1)
+            input_embed = torch.cat((input_embed, audio_embed),dim=1)
 
         generate_audio_latents = torch.stack(final_audio_latents_lst[:-1],dim=1).squeeze(1).squeeze(2)
         return generate_audio_latents.transpose(1,2)
@@ -179,3 +181,34 @@ class Llasa(nn.Module):
         """Compute KL divergence between this distribution and a standard normal."""
         target = torch.zeros_like(mean)
         return F.mse_loss(mean, target, reduction='none')
+
+
+
+def sample(mean, dist_type='fix'):
+    """
+    Sample from the distribution.
+    
+    Args:
+        dist_type (`str`): Sampling method, either 'fix' or 'gaussian'.
+            
+    Returns:
+        `torch.FloatTensor`: Sampled values.
+        `torch.FloatTensor` (optional): Standard deviation used (only when dist_type='gaussian').
+    """
+    std = torch.tensor(0.5).to(mean.device)
+    if dist_type == 'fix':
+        x = mean + std * torch.randn_like(mean)
+        return x.to(mean.device)
+    elif dist_type == 'gaussian':
+        batch_size = mean.size(0)
+        value = std / 0.8
+        std = torch.randn(batch_size, device=mean.device, dtype=mean.dtype) * value
+
+        while std.dim() < mean.dim():
+            std = std.unsqueeze(-1)
+
+        x = mean + std * torch.randn_like(mean)
+        return x.to(mean.device)
+    else:
+        return mean
+        

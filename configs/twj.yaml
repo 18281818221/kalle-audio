@@ -31,7 +31,7 @@ scheduler: "cosine"
 warmup_steps: 1_000
 total_steps: 100_0000
 save_interval: 5000
-
+log_interval: 1
 dataset:
 
   meta_path: "/mnt/bn/twj-data-multimodal2/merge_0822.jsonl"
