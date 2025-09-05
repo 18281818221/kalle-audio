@@ -31,7 +31,7 @@ class Llasa(nn.Module):
 
         self.vocab_size = self.base_model.config.vocab_size
         self.hidden_size = self.base_model.config.hidden_size
-        self.audio_linear = nn.Linear(config['latent_dim'], config['audio_proj_dim'], dtype=torch.float16) \
+        self.audio_linear = nn.Linear(config['latent_dim'], config['audio_proj_dim'], dtype=torch.bfloat16) \
                                         if self.use_fa \
                                         else nn.Linear(config['latent_dim'],config['audio_proj_dim'])
 
@@ -40,11 +40,11 @@ class Llasa(nn.Module):
         #                                 else nn.Linear(config['audio_proj_dim'], config['latent_dim']*2 )
         # self.distribution_linear 修改为一个MLP
         self.distribution_linear = nn.Sequential(
-            nn.Linear(config['audio_proj_dim'], config['latent_dim']*2, dtype=torch.float16) \
+            nn.Linear(config['audio_proj_dim'], config['latent_dim']*2, dtype=torch.bfloat16) \
                                         if self.use_fa \
                                         else nn.Linear(config['audio_proj_dim'], config['latent_dim']*2 ),
             nn.GELU(),
-            nn.Linear(config['latent_dim']*2, config['latent_dim']*2, dtype=torch.float16) \
+            nn.Linear(config['latent_dim']*2, config['latent_dim']*2, dtype=torch.bfloat16) \
                                         if self.use_fa \
                                         else nn.Linear(config['latent_dim']*2, config['latent_dim']*2 ),
         )

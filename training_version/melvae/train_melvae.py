@@ -125,10 +125,16 @@ def main():
     )
     print(f'[{datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")}] start loading TTSDataset_online_parquet')
 
-    base_lst = config["dataset"]["meta_path"]
-    base_lst = [ base_lst ]
+    input_training_jsonl = sys.argv[2:]
+    base_lst = [ ]
+    for item in input_training_jsonl:
+        base_lst.append(item)
+    print('input_training_jsonl', input_training_jsonl)
+
     random.seed(42)
-    train_dataset = TTSDataset_online_parquet(config["dataset"],tokenizer,base_lst,
+    train_dataset = TTSDataset_online_parquet(config["dataset"],
+                                            tokenizer,
+                                            base_lst,
                                             device=accelerator.device,
                                             output_bf16=config['use_flash_attation'],
                                             generator=generator)
@@ -309,7 +315,7 @@ def main():
                             pred_log_scale = pred_log_scale[:, batch.get("audio_latents_mask")[0], :]  # 去掉前面的text部分
                             pred_mean = pred_mean.transpose(1, 2) # b, t, d -->> b, d, t
                             pred_log_scale = pred_log_scale.transpose(1, 2)# b, t, d -->> b, d, t
-                            audio = generator_decoder.inference_from_mean_std(mean=pred_mean, logs_q=pred_log_scale, do_sample=True) # b, d, t
+                            audio = generator_decoder.inference_from_mean_std(mean=pred_mean.float(), logs_q=pred_log_scale.float(), do_sample=True) # b, d, t
                             output_audio_file = os.path.join(eval_audio_path, f'sample_{step}-gen.wav')
                             audio = rearrange(audio, "b d n -> d (b n)")
                             audio = audio.to(torch.float32).div(torch.max(torch.abs(audio))).clamp(-1, 1).mul(32767).to(torch.int16).cpu()
@@ -323,7 +329,7 @@ def main():
                             ground_truth_audio_latents = batch.get("distribute_lables")[0].unsqueeze(0)# b, t, d
                             ground_truth_audio_latents = ground_truth_audio_latents.transpose(1, 2)# b, t, d -->> b, d, t
                             ground_truth_audio_latents = ground_truth_audio_latents[:, :, batch.get("distribute_lables_mask")[0]]  # 去掉前面的text部分
-                            audio = generator_decoder.inference_from_latents(ground_truth_audio_latents, do_sample=True)
+                            audio = generator_decoder.inference_from_latents(ground_truth_audio_latents.float(), do_sample=True)
                             output_audio_file = os.path.join(eval_audio_path, f'sample_{step}-gt.wav')
                             audio = rearrange(audio, "b d n -> d (b n)")
                             

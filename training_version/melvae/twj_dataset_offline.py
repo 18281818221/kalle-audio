@@ -111,18 +111,25 @@ class TTSDataset_online_parquet(Dataset):
                     continue
                 speech_path = item['speech']
                 # video_path = item['video']
-                text = item['caption']
-                text = item['AudioSetCaps']
+                if "AudioSetCaps" not in item.keys():
+                    text = item['caption']
+                else:
+                    text = item['AudioSetCaps']
                 data_id = item['id']
                 # vae_latent_path = item['vae_latent_path']
                 # vae_latent_path = item['vae']    # latents ([1, 1024, 105])
 
 
 # VAE latent online
-                wav, sr = librosa.load(speech_path, sr=self.target_sr, mono=True)
-                wav = torch.from_numpy(wav).reshape(1, -1).unsqueeze(0) # 1,1,t
-                with torch.no_grad():
-                    mean_scale_latent = self.generator.extract_latents(wav) # mean_scale_latent torch.Size([1, 1024, 105])
+                vae_latent_path = os.path.splitext(speech_path)[0] + '.melvae.npy'
+                if os.path.exists(vae_latent_path):
+                    mean_scale_latent = np.load(vae_latent_path)
+                    mean_scale_latent = torch.from_numpy(mean_scale_latent)
+                else:
+                    wav, sr = librosa.load(speech_path, sr=self.target_sr, mono=True)
+                    wav = torch.from_numpy(wav).reshape(1, -1).unsqueeze(0) # 1,1,t
+                    with torch.no_grad():
+                        mean_scale_latent = self.generator.extract_latents(wav) # mean_scale_latent torch.Size([1, 1024, 105])
                 mean, logs_scale = mean_scale_latent.chunk(2, dim=1)
                 stdev = torch.exp(logs_scale)
                 latents = torch.randn_like(mean) * stdev + mean  # latents torch.Size([1, 512, 125])

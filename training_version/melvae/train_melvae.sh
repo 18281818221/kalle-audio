@@ -1,15 +1,14 @@
 
-cd /mnt/bn/twj-data-multimodal2/workspace/kalle/training_version/melvae
-
 source /mnt/bn/twj-data-multimodal2/workspace/vsr/LLaDA-8B/training_environment.sh
 
 export NCCL_DEBUG=INFO 
-export NCCL_P2P_DISABLE=1 
-export NCCL_IB_DISABLE=1
+# export NCCL_P2P_DISABLE=1 
+# export NCCL_IB_DISABLE=1
+export OMP_NUM_THREADS=1
 
 
 export CUDA_VISIBLE_DEVICES="0,1,2,3,4,5,6,7"
-export CUDA_VISIBLE_DEVICES="0"
+# export CUDA_VISIBLE_DEVICES="0"
 
 
 # 读取 CUDA_VISIBLE_DEVICES 环境变量
@@ -24,8 +23,23 @@ else
 fi
 # export NCCL_TIMEOUT=180s  # NCCL 通信超时（默认 30s）
 export TORCH_DISTRIBUTED_DEBUG=DETAIL  # 打印更详细的分布式日志，便于排查
+
+
+
+input_training_jsonl=(
+    "/mnt/bn/twj-data-multimodal2/dataset/jsonl/audioset_gemini2flash.valid.valid_audioset.vae.jsonl"
+    "/mnt/bn/twj-data-multimodal2/dataset/jsonl/vggsound-train.valid.vae.vibevoice_vae.jsonl"
+)
+echo "training jsonls list as follows:"
+for file in "${input_training_jsonl[@]}"; do
+    echo "$file"
+done
+
+
+
+cd /mnt/bn/twj-data-multimodal2/workspace/kalle/training_version/melvae
 # /mnt/bn/twj-data-multimodal2/environment/anaconda2/bin/python
 yaml_path=/mnt/bn/twj-data-multimodal2/workspace/kalle/configs/twj_melvae.yaml
 accelerate launch --config_file ./default_config.yaml \
                  --main_process_port 12368 \
-                 --num_processes ${GPU_COUNT} train_melvae.py ${yaml_path}
+                 --num_processes ${GPU_COUNT} train_melvae.py ${yaml_path}  "${input_training_jsonl[@]}"
